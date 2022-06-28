@@ -1,5 +1,5 @@
 import mysql.connector
-
+import time
 
 def connect():
     mydb = mysql.connector.connect(
@@ -108,3 +108,73 @@ def get_data_set(team, team_pw, dataset):
             imgs_and_labels.append([image_id, taxon_id])
 
     return imgs_and_labels
+
+
+def request_labels(team, team_pw, image_ids):
+    if not check_name_and_pw(team, team_pw):
+        return 0
+
+    current_credits = get_current_credits(team, team_pw)
+    if len(image_ids) > current_credits:
+        print("You have requested more ids than you have available credits")
+        return None
+
+    mydb = connect()
+    mycursor = mydb.cursor()
+
+    imgs_and_labels = []
+    for im in image_ids:
+        dataset = 'train_set'
+        sql = "SELECT taxonID from fungi_data where image_id = %s and dataset = %s"
+        val = (im, dataset)
+        mycursor.execute(sql, val)
+        myresults = mycursor.fetchall()
+        if len(myresults) > 0:
+            imgs_and_labels.append([im, myresults[0][0]])
+            time_now = time.strftime('%Y-%m-%d %H:%M:%S')
+            sql = "INSERT INTO requested_image_labels (image_id, team_name, request_time) VALUES (%s, %s, %s)"
+            val = (im, team, time_now)
+            mycursor.execute(sql, val)
+            mydb.commit()
+        elif len(myresults) == 0:
+            print('Image with id', im, 'is not in the available training set')
+        elif len(myresults) > 1:
+            print('More than one hit found for', im, '- weird!')
+
+    return imgs_and_labels
+
+
+def get_all_label_ids(team, team_pw):
+    if not check_name_and_pw(team, team_pw):
+        return None
+
+    label_species = []
+    mydb = connect()
+    mycursor = mydb.cursor()
+    sql = "SELECT taxonID, species_name FROM taxon_id_species"
+    mycursor.execute(sql)
+    myresults = mycursor.fetchall()
+    for id in myresults:
+        # print(id)
+        taxonID = id[0]
+        spec_name = id[1]
+        label_species.append([taxonID, spec_name])
+    return label_species
+
+
+def submit_labels(team, team_pw, image_and_labels):
+    if not check_name_and_pw(team, team_pw):
+        return 0
+
+    mydb = connect()
+    mycursor = mydb.cursor()
+
+    for sub in image_and_labels:
+        img_id = sub[0]
+        label = sub[1]
+        time_now = time.strftime('%Y-%m-%d %H:%M:%S')
+        sql = "INSERT INTO submitted_labels (image_id, team_name, label, submission_time) VALUES (%s, %s, %s, %s)"
+        val = (img_id, team, label, time_now)
+        mycursor.execute(sql, val)
+        mydb.commit()
+    print('Team', team, 'submitted', len(image_and_labels), 'labels')
