@@ -65,7 +65,7 @@ def test_submit_labels():
 
 
 if __name__ == '__main__':
-    test_get_participant_credits()
-    # test_get_data_set()
+    # test_get_participant_credits()
+    test_get_data_set()
     # test_request_labels()
     # test_submit_labels()

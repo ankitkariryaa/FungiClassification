@@ -1,8 +1,24 @@
+"""
+    Contains functions to connect to the fungi challenge backend SQL server.
+    It is possible to request data and submit results.
+    """
 import mysql.connector
 import time
 
 
 def connect():
+    """
+        Connect to the SQL backend server
+
+        :param number: The number to multiply.
+        :type number: int
+
+        :param muiltiplier: The multiplier.
+        :type muiltiplier: int
+
+        :return: The connection class if connection was successful, `None` otherwise
+        :rtype: MySQL connector
+        """
     try:
         mydb = mysql.connector.connect(
             host="fungi.compute.dtu.dk",
@@ -17,6 +33,18 @@ def connect():
 
 
 def check_name_and_pw(team, team_pw):
+    """
+        Verify the team name and team password in the backend server
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :return: `True` if team and password are correct, `False` otherwise
+        :rtype: bool
+        """
     try:
         mydb = connect()
         mycursor = mydb.cursor()
@@ -39,6 +67,18 @@ def check_name_and_pw(team, team_pw):
 
 
 def get_current_credits(team, team_pw):
+    """
+        Get the amount of credits that the team has.
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :return: Amount of credits
+        :rtype: int
+        """
     try:
         if not check_name_and_pw(team, team_pw):
             return 0
@@ -65,6 +105,18 @@ def get_current_credits(team, team_pw):
 
 
 def requested_data(team, team_pw):
+    """
+        Get the data with labels that have been requested/bought for credits
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :return: list of pairs of [image id, image label]
+        :rtype: list of pairs
+        """
     try:
         if not check_name_and_pw(team, team_pw):
             return 0
@@ -90,6 +142,35 @@ def requested_data(team, team_pw):
 
 
 def get_data_set(team, team_pw, dataset):
+    """
+        Get a given data set with or without labels.
+        It returns a list of [image id, label] pairs, where label='None' if the label is not available.
+
+        train_set : The set of data that can be used for training but without given labels.
+                    It is possible to buy the labels from this set. If a label a bought, the
+                    id is copied into the 'requested_set'
+
+        train_labels_set : The set of data where the labels are given from the start.
+
+        requested_set : The set of data, where a team has bought the labels using credits.
+
+        test_set : The set that will be used for computing intermediate scores during the challenge.
+                   Can be considered as a validation set, but where only organizers have the labels.
+
+         final_set : The set that will be used for the final score.
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :param dataset: The wanted dataset.
+        :type dataset: string
+
+        :return: list of pairs of [image id, image label]
+        :rtype: list of pairs
+        """
     try:
         if not check_name_and_pw(team, team_pw):
             return 0
@@ -131,6 +212,23 @@ def get_data_set(team, team_pw, dataset):
 
 
 def request_labels(team, team_pw, image_ids):
+    """
+        Request the labels from a part of the 'training_set' image ids. It costs credits
+        to request labels. It returns the [image id, labels] pairs of the requested image ids.
+        The requested [image id, labels] pairs can later be retrieved using get_data_set.
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :param image_ids: List of image ids.
+        :type team_pw: list
+
+        :return: list of pairs of [image id, image label]
+        :rtype: list of pairs
+        """
     try:
         if not check_name_and_pw(team, team_pw):
             return 0
@@ -169,6 +267,19 @@ def request_labels(team, team_pw, image_ids):
 
 
 def get_all_label_ids(team, team_pw):
+    """
+        Get a list of pairs [label, species name], where the label is an integer
+        and the species name is a string with the scientific name of the species.
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :return: list of pairs of [label, species name]
+        :rtype: list of pairs
+        """
     try:
         if not check_name_and_pw(team, team_pw):
             return None
@@ -191,6 +302,20 @@ def get_all_label_ids(team, team_pw):
 
 
 def submit_labels(team, team_pw, image_and_labels):
+    """
+        Submit classification results as a list of pairs [image id, label].
+        The time of submissions is kept for each submission and when computing scores
+        only the most recent submission is used.
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :param image_and_labels: list of pairs of [image id, label]
+        :type image_and_labels: list of pairs
+        """
     try:
         if not check_name_and_pw(team, team_pw):
             return 0
@@ -209,4 +334,3 @@ def submit_labels(team, team_pw, image_and_labels):
         print('Team', team, 'submitted', len(image_and_labels), 'labels')
     except mysql.connector.Error as err:
         print("Something went wrong: {}".format(err))
-    return None
