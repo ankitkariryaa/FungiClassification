@@ -64,8 +64,19 @@ def test_submit_labels():
     fcp.submit_labels(team, team_pw, im_and_labels)
 
 
+def test_compute_score():
+    # team = "DancingDeer"
+    # team_pw = "fungi44"
+    team = "BigAnt"
+    team_pw = "fungi66"
+
+    results = fcp.compute_score(team, team_pw)
+    print(results)
+
+
 if __name__ == '__main__':
     # test_get_participant_credits()
-    test_get_data_set()
+    # test_get_data_set()
     # test_request_labels()
     # test_submit_labels()
+    test_compute_score()

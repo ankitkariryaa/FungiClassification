@@ -68,6 +68,9 @@ GRANT SELECT
 GRANT UPDATE, INSERT
   ON fungi.submitted_labels
   TO 'fungiuser'@'%';
+GRANT SELECT
+  ON fungi.submitted_labels
+  TO 'fungiuser'@'%';
 
 
 
@@ -95,8 +98,6 @@ CREATE USER 'fungisuper'@'localhost'
 GRANT ALL
   ON fungi.*
   TO 'fungisuper'@'localhost';
-
-
 
 CREATE USER 'fungiuser'@'localhost'
   IDENTIFIED BY 'fungipw';

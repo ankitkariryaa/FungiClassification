@@ -4,7 +4,8 @@
     """
 import mysql.connector
 import time
-
+import sklearn.metrics
+import datetime
 
 def connect():
     """
@@ -334,3 +335,92 @@ def submit_labels(team, team_pw, image_and_labels):
         print('Team', team, 'submitted', len(image_and_labels), 'labels')
     except mysql.connector.Error as err:
         print("Something went wrong: {}".format(err))
+
+
+def compute_score(team, team_pw):
+    """
+        Compute the current score on the test.
+
+        :param team: Name of the team
+        :type team: string
+
+        :param team_pw: Password.
+        :type team_pw: string
+
+        :return Dictionary with results in different metrics.
+        :rtype Dictionary with results.
+        """
+    try:
+        if not check_name_and_pw(team, team_pw):
+            return 0
+        print(team)
+
+        mydb = connect()
+        mycursor = mydb.cursor()
+
+        dataset = 'test_set'
+        # Get ground truth
+        sql = "select image_id, taxonID from fungi_data where dataset=%s"
+        val = (dataset,)
+        mycursor.execute(sql, val)
+        ground_truth = mycursor.fetchall()
+        n_entries_gt = len(ground_truth)
+        print('Got', n_entries_gt, ' ground truth labels for set:', dataset)
+
+        # Get submissions from team
+        sql = "select image_id, label, submission_time from submitted_labels where team_name=%s"
+        val = (team,)
+        mycursor.execute(sql, val)
+        submissions = mycursor.fetchall()
+        n_entries = len(submissions)
+        print('Got', n_entries, ' submitted labels from team:', team)
+
+        # Use a nested dictionary
+        pred_gt_dict = {}
+        # add ground truth
+        for gt in ground_truth:
+            im_id = gt[0]
+            tax_id = gt[1]
+            pred_gt_dict[im_id] = {"gt": tax_id, "pred": -1, "time": datetime.datetime(1900, 1, 1)}
+
+        # now update with latest submissions
+        latest_time = datetime.datetime(1900, 1, 1)
+        for sub in submissions:
+            im_id_sub = sub[0]
+            tax_id_sub = sub[1]
+            time_sub = sub[2]
+            cur_gt = pred_gt_dict[im_id_sub]["gt"]
+            cur_time = pred_gt_dict[im_id_sub]["time"]
+            if time_sub > cur_time:
+                pred_gt_dict[im_id_sub]["pred"] = tax_id_sub
+                pred_gt_dict[im_id_sub]["time"] = time_sub
+            if time_sub > latest_time:
+                latest_time = time_sub
+
+        y_true = []
+        y_pred = []
+        n_preds = 0
+        for pg in pred_gt_dict.values():
+            y_true.append(pg["gt"])
+            y_pred.append(pg["pred"])
+            if pg["pred"] > -1:
+                n_preds = n_preds + 1
+
+        print('Found', n_preds, ' predictions out of', n_entries_gt, 'Latest submission on', latest_time)
+        # We use all prediction, where non-submitted are set to -1
+        accuracy = sklearn.metrics.accuracy_score(y_true, y_pred)
+        f1_score = sklearn.metrics.f1_score(y_true, y_pred, average="weighted")
+        cohen_kappa = sklearn.metrics.cohen_kappa_score(y_true, y_pred)
+        print('Accuracy:', accuracy, 'f1', f1_score, 'Cohen kappa', cohen_kappa)
+
+        results_metric = {
+            "Accuracy": accuracy,
+            "F1score": f1_score,
+            "CohenKappa": cohen_kappa,
+            "LastSubmissionTime": latest_time
+        }
+
+        return results_metric
+    except mysql.connector.Error as err:
+        print("Something went wrong: {}".format(err))
+    return None
