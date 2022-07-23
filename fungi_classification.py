@@ -1,5 +1,10 @@
+import os.path
+
+import pandas as pd
+
 import fungichallenge.participant as fcp
 import random
+
 
 def test_get_participant_credits():
     team = "DancingDeer"
@@ -74,9 +79,61 @@ def test_compute_score():
     print(results)
 
 
+def get_all_data_with_labels(tm, tm_pw, nw_dir):
+    """
+        Get the team data that has labels (initial data plus requested data).
+        Writes a csv file with the image names and their class ids.
+        Also writes a csv file with some useful statistics
+    """
+    stats_out = os.path.join(nw_dir, "fungi_class_stats.csv")
+    data_out = os.path.join(nw_dir, "data_with_labels.csv")
+
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_labels_set')
+    imgs_and_data_r = fcp.get_data_set(tm, tm_pw, 'requested_set')
+
+    total_img_data = imgs_and_data + imgs_and_data_r
+    df = pd.DataFrame(total_img_data, columns=['image', 'taxonID'])
+    print(df.head())
+    all_taxon_ids = df['taxonID']
+
+    # convert taxonID into a class id
+    taxon_id_to_label = {}
+    # label_to_taxon_id = {}
+    for count, value in enumerate(all_taxon_ids.unique()):
+        taxon_id_to_label[int(value)] = count
+        # label_to_taxon_id[count] = int(value)
+
+    with open(data_out, 'w') as f:
+        f.write('image, class\n')
+        for t in total_img_data:
+            # count = df['taxonID'].value_counts()[ti]
+            class_id = taxon_id_to_label[t[1]]
+            out_str = str(t[0]) + '.jpg, ' + str(class_id) + '\n'
+            f.write(out_str)
+
+    with open(stats_out, 'w') as f:
+        f.write('taxonID, class, count\n')
+        for ti in taxon_id_to_label:
+            count = df['taxonID'].value_counts()[ti]
+            class_id = taxon_id_to_label[ti]
+            out_str = str(ti) + ', ' + str(class_id) + ', ' + str(count) + '\n'
+            f.write(out_str)
+
+
 if __name__ == '__main__':
+    # Your team and team password
+    team = "DancingDeer"
+    team_pw = "fungi44"
+
+    # where is the full set of images placed
+    image_dir = "C:/data/Danish Fungi/DF20M/"
+
+    # where should log files, temporary files and trained models be placed
+    network_dir = "C:/data/Danish Fungi/FungiNetwork/"
+
+    get_all_data_with_labels(team, team_pw, network_dir)
     # test_get_participant_credits()
     # test_get_data_set()
     # test_request_labels()
     # test_submit_labels()
-    test_compute_score()
+    # test_compute_score()
