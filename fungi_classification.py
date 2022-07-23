@@ -1,9 +1,21 @@
 import os.path
-
 import pandas as pd
-
 import fungichallenge.participant as fcp
 import random
+import torch
+import torch.nn as nn
+import cv2
+from torch.optim import Adam, SGD, AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader, Dataset
+from albumentations import Compose, Normalize, Resize
+from albumentations import RandomCrop, HorizontalFlip, VerticalFlip, RandomBrightnessContrast, CenterCrop, PadIfNeeded, RandomResizedCrop
+from albumentations.pytorch import ToTensorV2
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.metrics import f1_score, accuracy_score, top_k_accuracy_score
+from efficientnet_pytorch import EfficientNet
+import numpy as np
+import tqdm
 
 
 def test_get_participant_credits():
@@ -79,7 +91,7 @@ def test_compute_score():
     print(results)
 
 
-def get_all_data_with_labels(tm, tm_pw, nw_dir):
+def get_all_data_with_labels(tm, tm_pw, id_dir, nw_dir):
     """
         Get the team data that has labels (initial data plus requested data).
         Writes a csv file with the image names and their class ids.
@@ -104,11 +116,10 @@ def get_all_data_with_labels(tm, tm_pw, nw_dir):
         # label_to_taxon_id[count] = int(value)
 
     with open(data_out, 'w') as f:
-        f.write('image, class\n')
+        f.write('image,class\n')
         for t in total_img_data:
-            # count = df['taxonID'].value_counts()[ti]
             class_id = taxon_id_to_label[t[1]]
-            out_str = str(t[0]) + '.jpg, ' + str(class_id) + '\n'
+            out_str = os.path.join(id_dir, t[0]) + '.jpg, ' + str(class_id) + '\n'
             f.write(out_str)
 
     with open(stats_out, 'w') as f:
@@ -118,6 +129,151 @@ def get_all_data_with_labels(tm, tm_pw, nw_dir):
             class_id = taxon_id_to_label[ti]
             out_str = str(ti) + ', ' + str(class_id) + ', ' + str(count) + '\n'
             f.write(out_str)
+
+
+class NetworkFungiDataset(Dataset):
+    def __init__(self, df, transform=None):
+        self.df = df
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        file_path = self.df['image'].values[idx]
+        label = int(self.df['class'].values[idx])
+        try:
+            image = cv2.imread(file_path)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        except:
+            print("Could not read or convert", file_path)
+
+        if self.transform:
+            augmented = self.transform(image=image)
+            image = augmented['image']
+
+        return image, label
+
+
+def get_transforms(data):
+    width = 299
+    height = 299
+
+    if data == 'train':
+        return Compose([
+            RandomResizedCrop(width, height, scale=(0.8, 1.0)),
+            HorizontalFlip(p=0.5),
+            VerticalFlip(p=0.5),
+            RandomBrightnessContrast(p=0.2),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ToTensorV2(),
+        ])
+    elif data == 'valid':
+        return Compose([
+            Resize(width, height),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ToTensorV2(),
+        ])
+    else:
+        print("Unknown data set requested")
+        return None
+
+
+def train_fungi_network(nw_dir):
+    data_file = os.path.join(nw_dir, "data_with_labels.csv")
+    df = pd.read_csv(data_file)
+
+    n_classes = len(df['class'].unique())
+    print("Number of classes in data", n_classes)
+
+    train_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
+    # valid_dataset = TrainDataset(test_metadata, transform=get_transforms(data='valid'))
+
+    batch_sz = 32
+    n_epochs = 100
+    n_workers = 8
+    train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using device:', device)
+
+    model = EfficientNet.from_pretrained('efficientnet-b0')
+    model._fc = nn.Linear(model._fc.in_features, n_classes)
+
+    model.to(device)
+
+    lr = 0.01
+    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
+
+    criterion = nn.CrossEntropyLoss()
+    best_score = 0.
+    best_loss = np.inf
+
+    for epoch in range(n_epochs):
+        # start_time = time.time()
+
+        model.train()
+        avg_loss = 0.
+
+        optimizer.zero_grad()
+
+        for i, (images, labels) in tqdm.tqdm(enumerate(train_loader)):
+            images = images.to(device)
+            labels = labels.to(device)
+
+            y_preds = model(images)
+            loss = criterion(y_preds, labels)
+
+            # Scale the loss to the mean of the accumulated batch size
+            # loss = loss / accumulation_steps
+            loss.backward()
+            # if (i - 1) % accumulation_steps == 0:
+            #    optimizer.step()
+            #    optimizer.zero_grad()
+
+            #    avg_loss += loss.item() / len(train_loader)
+
+        # model.eval()
+        # avg_val_loss = 0.
+        # preds = np.zeros((len(valid_dataset)))
+        # preds_raw = []
+
+        # for i, (images, labels) in enumerate(valid_loader):
+        #   images = images.to(device)
+        #    labels = labels.to(device)
+
+        #    with torch.no_grad():
+        #        y_preds = model(images)
+
+        #    preds[i * BATCH_SIZE: (i + 1) * BATCH_SIZE] = y_preds.argmax(1).to('cpu').numpy()
+        #    preds_raw.extend(y_preds.to('cpu').numpy())
+
+        #    loss = criterion(y_preds, labels)
+        #    avg_val_loss += loss.item() / len(valid_loader)
+
+        # scheduler.step(avg_val_loss)
+
+        # score = f1_score(test_metadata['class_id'], preds, average='macro')
+        # accuracy = accuracy_score(test_metadata['class_id'], preds)
+        # recall_3 = top_k_accuracy_score(test_metadata['class_id'], preds_raw, k=3)
+
+        # elapsed = time.time() - start_time
+
+        # LOGGER.debug(
+        #   f'  Epoch {epoch + 1} - avg_train_loss: {avg_loss:.4f}  avg_val_loss: {avg_val_loss:.4f} F1: {score:.6f}  Accuracy: {accuracy:.6f} Recall@3: {recall_3:.6f} time: {elapsed:.0f}s')
+
+        # if accuracy > best_score:
+        #    best_score = accuracy
+        #    LOGGER.debug(f'  Epoch {epoch + 1} - Save Best Accuracy: {best_score:.6f} Model')
+        #    best_model_name = local_model_dir + "DF20M-EfficientNet-B0_best_accuracy.pth"
+        #    torch.save(model.state_dict(), best_model_name)
+
+        # if avg_val_loss < best_loss:
+        #    best_loss = avg_val_loss
+        #    LOGGER.debug(f'  Epoch {epoch + 1} - Save Best Loss: {best_loss:.4f} Model')
+        #    best_model_name = local_model_dir + "DF20M-EfficientNet-B0_best_loss.pth"
+        #    torch.save(model.state_dict(), best_model_name)
 
 
 if __name__ == '__main__':
@@ -131,7 +287,9 @@ if __name__ == '__main__':
     # where should log files, temporary files and trained models be placed
     network_dir = "C:/data/Danish Fungi/FungiNetwork/"
 
-    get_all_data_with_labels(team, team_pw, network_dir)
+    get_all_data_with_labels(team, team_pw, image_dir, network_dir)
+    train_fungi_network(network_dir)
+
     # test_get_participant_credits()
     # test_get_data_set()
     # test_request_labels()
