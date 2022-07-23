@@ -82,14 +82,6 @@ def test_submit_labels():
     fcp.submit_labels(team, team_pw, im_and_labels)
 
 
-def test_compute_score():
-    # team = "DancingDeer"
-    # team_pw = "fungi44"
-    team = "BigAnt"
-    team_pw = "fungi66"
-
-    results = fcp.compute_score(team, team_pw)
-    print(results)
 
 
 def get_all_data_with_labels(tm, tm_pw, id_dir, nw_dir):
@@ -124,7 +116,7 @@ def get_all_data_with_labels(tm, tm_pw, id_dir, nw_dir):
             f.write(out_str)
 
     with open(stats_out, 'w') as f:
-        f.write('taxonID, class, count\n')
+        f.write('taxonID,class,count\n')
         for ti in taxon_id_to_label:
             count = df['taxonID'].value_counts()[ti]
             class_id = taxon_id_to_label[ti]
@@ -142,7 +134,9 @@ class NetworkFungiDataset(Dataset):
 
     def __getitem__(self, idx):
         file_path = self.df['image'].values[idx]
-        label = int(self.df['class'].values[idx])
+        label = 0
+        if self.df['class'].values[idx] is not None:
+            label = int(self.df['class'].values[idx])
         try:
             image = cv2.imread(file_path)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -310,6 +304,116 @@ def train_fungi_network(nw_dir):
             torch.save(model.state_dict(), best_model_name)
 
 
+def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
+    print("Evaluating on test set")
+    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+    log_file = os.path.join(nw_dir, "FungiEvaluation.log")
+    data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
+    logger = init_logger(log_file)
+
+    imgs_and_data = fcp.get_data_set(team, team_pw, 'test_set')
+    df = pd.DataFrame(imgs_and_data, columns=['image', 'class'])
+    df['image'] = df.apply(
+        lambda x: im_dir + x['image'] + '.jpg', axis=1)
+
+    test_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
+    # batch_sz * accumulation_step = 64
+    batch_sz = 32
+    # accumulation_steps = 2
+    # n_epochs = 100
+    n_workers = 8
+    test_loader = DataLoader(test_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
+    # valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+
+    # seed_torch(777)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using device:', device)
+
+    n_classes = 183
+    model = EfficientNet.from_pretrained('efficientnet-b0', weights_path=best_trained_model, num_classes=n_classes)
+    model._fc = nn.Linear(model._fc.in_features, n_classes)
+
+    model.to(device)
+
+    # lr = 0.01
+    # optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
+    #
+    # criterion = nn.CrossEntropyLoss()
+    # best_score = 0.
+    # best_loss = np.inf
+    #
+    # for epoch in range(n_epochs):
+    #     start_time = time.time()
+    #     model.train()
+    #     avg_loss = 0.
+    #     optimizer.zero_grad()
+    #
+    #     for i, (images, labels) in tqdm.tqdm(enumerate(train_loader)):
+    #         images = images.to(device)
+    #         labels = labels.to(device)
+    #
+    #         y_preds = model(images)
+    #         loss = criterion(y_preds, labels)
+    #
+    #         # Scale the loss to the mean of the accumulated batch size
+    #         loss = loss / accumulation_steps
+    #         loss.backward()
+    #         if (i - 1) % accumulation_steps == 0:
+    #             optimizer.step()
+    #             optimizer.zero_grad()
+    #             avg_loss += loss.item() / len(train_loader)
+    #
+    model.eval()
+    avg_val_loss = 0.
+    preds = np.zeros((len(test_dataset)))
+    preds_raw = []
+
+    for i, (images, labels) in tqdm.tqdm(enumerate(test_loader)):
+        images = images.to(device)
+        labels = labels.to(device)
+
+        with torch.no_grad():
+            y_preds = model(images)
+
+        preds[i * batch_sz: (i + 1) * batch_sz] = y_preds.argmax(1).to('cpu').numpy()
+        # preds_raw.extend(y_preds.to('cpu').numpy())
+
+    # Transfrom classes into taxonIDs
+    data_stats = pd.read_csv(data_stats_file)
+    img_and_labels = []
+    for i, s in enumerate(imgs_and_data):
+        pred_class = int(preds[i])
+        taxon_id = int(data_stats['taxonID'][data_stats['class'] == pred_class])
+        # print("Image: ", s[0], ' class:', pred_class, 'taxonID', taxon_id)
+        img_and_labels.append([s[0], taxon_id])
+
+    print("Submitting labels")
+    fcp.submit_labels(tm, tm_pw, img_and_labels)
+
+
+
+        # loss = criterion(y_preds, labels)
+        # avg_val_loss += loss.item() / len(valid_loader)
+    #
+    #     scheduler.step(avg_val_loss)
+    #
+    #     # TODO: Add independent validation set
+    #     score = f1_score(df['class'], preds, average='macro')
+    #     accuracy = accuracy_score(df['class'], preds)
+    #     recall_3 = top_k_accuracy_score(df['class'], preds_raw, k=3)
+    #
+    #     elapsed = time.time() - start_time
+    #     logger.debug(
+    #       f'  Epoch {epoch + 1} - avg_train_loss: {avg_loss:.4f}  avg_val_loss: {avg_val_loss:.4f} F1: {score:.6f}  Accuracy: {accuracy:.6f} Recall@3: {recall_3:.6f} time: {elapsed:.0f}s')
+
+
+def compute_challenge_score(tm, tm_pw):
+    results = fcp.compute_score(tm, tm_pw)
+    print(results)
+
+
 if __name__ == '__main__':
     # Your team and team password
     team = "DancingDeer"
@@ -322,10 +426,7 @@ if __name__ == '__main__':
     network_dir = "C:/data/Danish Fungi/FungiNetwork/"
 
     # get_all_data_with_labels(team, team_pw, image_dir, network_dir)
-    train_fungi_network(network_dir)
-
-    # test_get_participant_credits()
-    # test_get_data_set()
-    # test_request_labels()
-    # test_submit_labels()
-    # test_compute_score()
+    # train_fungi_network(network_dir)
+    # evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
+    compute_challenge_score(team, team_pw)
+    
