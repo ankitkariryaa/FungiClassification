@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import cv2
 from torch.optim import Adam, SGD, AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+# from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
 from albumentations import Compose, Normalize, Resize
 from albumentations import RandomCrop, HorizontalFlip, VerticalFlip, RandomBrightnessContrast, CenterCrop, PadIfNeeded, RandomResizedCrop
@@ -16,7 +16,8 @@ from sklearn.metrics import f1_score, accuracy_score, top_k_accuracy_score
 from efficientnet_pytorch import EfficientNet
 import numpy as np
 import tqdm
-
+from logging import getLogger, DEBUG, FileHandler, Formatter, StreamHandler
+import time
 
 def test_get_participant_credits():
     team = "DancingDeer"
@@ -179,20 +180,55 @@ def get_transforms(data):
         return None
 
 
+def seed_torch(seed=777):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+
+
+def init_logger(log_file='train.log'):
+    log_format = '%(asctime)s %(levelname)s %(message)s'
+
+    stream_handler = StreamHandler()
+    stream_handler.setLevel(DEBUG)
+    stream_handler.setFormatter(Formatter(log_format))
+
+    file_handler = FileHandler(log_file)
+    file_handler.setFormatter(Formatter(log_format))
+
+    logger = getLogger(__name__)
+    logger.setLevel(DEBUG)
+    logger.addHandler(stream_handler)
+    logger.addHandler(file_handler)
+
+    return logger
+
+
 def train_fungi_network(nw_dir):
     data_file = os.path.join(nw_dir, "data_with_labels.csv")
-    df = pd.read_csv(data_file)
+    log_file = os.path.join(nw_dir, "FungiEfficientNet-B0.log")
+    logger = init_logger(log_file)
 
+    df = pd.read_csv(data_file)
     n_classes = len(df['class'].unique())
     print("Number of classes in data", n_classes)
 
     train_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
-    # valid_dataset = TrainDataset(test_metadata, transform=get_transforms(data='valid'))
+    # TODO: create independent validation set
+    valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
 
+    # batch_sz * accumulation_step = 64
     batch_sz = 32
+    accumulation_steps = 2
     n_epochs = 100
     n_workers = 8
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+
+    seed_torch(777)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using device:', device)
@@ -211,11 +247,9 @@ def train_fungi_network(nw_dir):
     best_loss = np.inf
 
     for epoch in range(n_epochs):
-        # start_time = time.time()
-
+        start_time = time.time()
         model.train()
         avg_loss = 0.
-
         optimizer.zero_grad()
 
         for i, (images, labels) in tqdm.tqdm(enumerate(train_loader)):
@@ -226,54 +260,54 @@ def train_fungi_network(nw_dir):
             loss = criterion(y_preds, labels)
 
             # Scale the loss to the mean of the accumulated batch size
-            # loss = loss / accumulation_steps
+            loss = loss / accumulation_steps
             loss.backward()
-            # if (i - 1) % accumulation_steps == 0:
-            #    optimizer.step()
-            #    optimizer.zero_grad()
+            if (i - 1) % accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                avg_loss += loss.item() / len(train_loader)
 
-            #    avg_loss += loss.item() / len(train_loader)
+        print("Doing validation")
+        model.eval()
+        avg_val_loss = 0.
+        preds = np.zeros((len(valid_dataset)))
+        preds_raw = []
 
-        # model.eval()
-        # avg_val_loss = 0.
-        # preds = np.zeros((len(valid_dataset)))
-        # preds_raw = []
+        for i, (images, labels) in tqdm.tqdm(enumerate(valid_loader)):
+            images = images.to(device)
+            labels = labels.to(device)
 
-        # for i, (images, labels) in enumerate(valid_loader):
-        #   images = images.to(device)
-        #    labels = labels.to(device)
+            with torch.no_grad():
+                y_preds = model(images)
 
-        #    with torch.no_grad():
-        #        y_preds = model(images)
+            preds[i * batch_sz: (i + 1) * batch_sz] = y_preds.argmax(1).to('cpu').numpy()
+            preds_raw.extend(y_preds.to('cpu').numpy())
 
-        #    preds[i * BATCH_SIZE: (i + 1) * BATCH_SIZE] = y_preds.argmax(1).to('cpu').numpy()
-        #    preds_raw.extend(y_preds.to('cpu').numpy())
+            loss = criterion(y_preds, labels)
+            avg_val_loss += loss.item() / len(valid_loader)
 
-        #    loss = criterion(y_preds, labels)
-        #    avg_val_loss += loss.item() / len(valid_loader)
+        scheduler.step(avg_val_loss)
 
-        # scheduler.step(avg_val_loss)
+        # TODO: Add independent validation set
+        score = f1_score(df['class'], preds, average='macro')
+        accuracy = accuracy_score(df['class'], preds)
+        recall_3 = top_k_accuracy_score(df['class'], preds_raw, k=3)
 
-        # score = f1_score(test_metadata['class_id'], preds, average='macro')
-        # accuracy = accuracy_score(test_metadata['class_id'], preds)
-        # recall_3 = top_k_accuracy_score(test_metadata['class_id'], preds_raw, k=3)
+        elapsed = time.time() - start_time
+        logger.debug(
+          f'  Epoch {epoch + 1} - avg_train_loss: {avg_loss:.4f}  avg_val_loss: {avg_val_loss:.4f} F1: {score:.6f}  Accuracy: {accuracy:.6f} Recall@3: {recall_3:.6f} time: {elapsed:.0f}s')
 
-        # elapsed = time.time() - start_time
+        if accuracy > best_score:
+            best_score = accuracy
+            logger.debug(f'  Epoch {epoch + 1} - Save Best Accuracy: {best_score:.6f} Model')
+            best_model_name = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+            torch.save(model.state_dict(), best_model_name)
 
-        # LOGGER.debug(
-        #   f'  Epoch {epoch + 1} - avg_train_loss: {avg_loss:.4f}  avg_val_loss: {avg_val_loss:.4f} F1: {score:.6f}  Accuracy: {accuracy:.6f} Recall@3: {recall_3:.6f} time: {elapsed:.0f}s')
-
-        # if accuracy > best_score:
-        #    best_score = accuracy
-        #    LOGGER.debug(f'  Epoch {epoch + 1} - Save Best Accuracy: {best_score:.6f} Model')
-        #    best_model_name = local_model_dir + "DF20M-EfficientNet-B0_best_accuracy.pth"
-        #    torch.save(model.state_dict(), best_model_name)
-
-        # if avg_val_loss < best_loss:
-        #    best_loss = avg_val_loss
-        #    LOGGER.debug(f'  Epoch {epoch + 1} - Save Best Loss: {best_loss:.4f} Model')
-        #    best_model_name = local_model_dir + "DF20M-EfficientNet-B0_best_loss.pth"
-        #    torch.save(model.state_dict(), best_model_name)
+        if avg_val_loss < best_loss:
+            best_loss = avg_val_loss
+            logger.debug(f'  Epoch {epoch + 1} - Save Best Loss: {best_loss:.4f} Model')
+            best_model_name = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_loss.pth")
+            torch.save(model.state_dict(), best_model_name)
 
 
 if __name__ == '__main__':
@@ -287,7 +321,7 @@ if __name__ == '__main__':
     # where should log files, temporary files and trained models be placed
     network_dir = "C:/data/Danish Fungi/FungiNetwork/"
 
-    get_all_data_with_labels(team, team_pw, image_dir, network_dir)
+    # get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     train_fungi_network(network_dir)
 
     # test_get_participant_credits()
