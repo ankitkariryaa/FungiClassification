@@ -6,6 +6,8 @@ import mysql.connector
 import time
 import sklearn.metrics
 import datetime
+from tqdm import tqdm
+
 
 def connect():
     """
@@ -324,7 +326,8 @@ def submit_labels(team, team_pw, image_and_labels):
         mydb = connect()
         mycursor = mydb.cursor()
 
-        for sub in image_and_labels:
+        for i in tqdm(range(len(image_and_labels))):
+            sub = image_and_labels[i]
             img_id = sub[0]
             label = sub[1]
             time_now = time.strftime('%Y-%m-%d %H:%M:%S')

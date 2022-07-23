@@ -427,6 +427,6 @@ if __name__ == '__main__':
 
     # get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     # train_fungi_network(network_dir)
-    # evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
+    evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
     compute_challenge_score(team, team_pw)
-    
+    # test_submit_labels()
