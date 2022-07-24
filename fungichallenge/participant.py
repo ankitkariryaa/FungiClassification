@@ -6,7 +6,7 @@ import mysql.connector
 import time
 import sklearn.metrics
 import datetime
-from tqdm import tqdm
+# from tqdm import tqdm
 
 
 def connect():
@@ -323,17 +323,30 @@ def submit_labels(team, team_pw, image_and_labels):
         if not check_name_and_pw(team, team_pw):
             return 0
 
+        print("Submitting labels")
         mydb = connect()
         mycursor = mydb.cursor()
 
-        for i in tqdm(range(len(image_and_labels))):
+        # https://dev.mysql.com/doc/connector-python/en/connector-python-api-mysqlcursor-executemany.html
+        val_list = []
+        for i in range(len(image_and_labels)):
             sub = image_and_labels[i]
             img_id = sub[0]
             label = sub[1]
             time_now = time.strftime('%Y-%m-%d %H:%M:%S')
-            sql = "INSERT INTO submitted_labels (image_id, team_name, label, submission_time) VALUES (%s, %s, %s, %s)"
-            val = (img_id, team, label, time_now)
-            mycursor.execute(sql, val)
+            val_list.append([img_id, team, label, time_now])
+        sql = "INSERT INTO submitted_labels (image_id, team_name, label, submission_time) VALUES (%s, %s, %s, %s)"
+        val = (img_id, team, label, time_now)
+        mycursor.executemany(sql, val_list)
+
+        # for i in tqdm(range(len(image_and_labels))):
+        #     sub = image_and_labels[i]
+        #     img_id = sub[0]
+        #     label = sub[1]
+        #     time_now = time.strftime('%Y-%m-%d %H:%M:%S')
+        #     sql = "INSERT INTO submitted_labels (image_id, team_name, label, submission_time) VALUES (%s, %s, %s, %s)"
+        #     val = (img_id, team, label, time_now)
+        #     mycursor.execute(sql, val)
         mydb.commit()
         print('Team', team, 'submitted', len(image_and_labels), 'labels')
     except mysql.connector.Error as err:
