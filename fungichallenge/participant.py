@@ -334,7 +334,7 @@ def submit_labels(team, team_pw, image_and_labels):
             sql = "INSERT INTO submitted_labels (image_id, team_name, label, submission_time) VALUES (%s, %s, %s, %s)"
             val = (img_id, team, label, time_now)
             mycursor.execute(sql, val)
-            mydb.commit()
+        mydb.commit()
         print('Team', team, 'submitted', len(image_and_labels), 'labels')
     except mysql.connector.Error as err:
         print("Something went wrong: {}".format(err))

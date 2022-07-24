@@ -307,13 +307,13 @@ def train_fungi_network(nw_dir):
 def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     print("Evaluating on test set")
 
-    # best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
     log_file = os.path.join(nw_dir, "FungiEvaluation.log")
-    # data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
+    data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
 
-    # TODO: Debug on model trained elsewhere
-    best_trained_model = os.path.join("C:/data/Danish Fungi/training/", "DF20M-EfficientNet-B0_best_accuracy - Copy.pth")
-    data_stats_file = os.path.join("C:/data/Danish Fungi/training/", "class-stats.csv")
+    # Debug on model trained elsewhere
+    # best_trained_model = os.path.join("C:/data/Danish Fungi/training/", "DF20M-EfficientNet-B0_best_accuracy - Copy.pth")
+    # data_stats_file = os.path.join("C:/data/Danish Fungi/training/", "class-stats.csv")
 
     logger = init_logger(log_file)
 
@@ -376,13 +376,13 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     #             avg_loss += loss.item() / len(train_loader)
     #
     model.eval()
-    avg_val_loss = 0.
+    # avg_val_loss = 0.
     preds = np.zeros((len(test_dataset)))
-    preds_raw = []
+    # preds_raw = []
 
     for i, (images, labels) in tqdm.tqdm(enumerate(test_loader)):
         images = images.to(device)
-        labels = labels.to(device)
+        # labels = labels.to(device)
 
         with torch.no_grad():
             y_preds = model(images)
