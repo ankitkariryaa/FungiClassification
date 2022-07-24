@@ -306,9 +306,15 @@ def train_fungi_network(nw_dir):
 
 def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     print("Evaluating on test set")
-    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+
+    # best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
     log_file = os.path.join(nw_dir, "FungiEvaluation.log")
-    data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
+    # data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
+
+    # TODO: Debug on model trained elsewhere
+    best_trained_model = os.path.join("C:/data/Danish Fungi/training/", "DF20M-EfficientNet-B0_best_accuracy - Copy.pth")
+    data_stats_file = os.path.join("C:/data/Danish Fungi/training/", "class-stats.csv")
+
     logger = init_logger(log_file)
 
     imgs_and_data = fcp.get_data_set(team, team_pw, 'test_set')
@@ -322,7 +328,7 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     # accumulation_steps = 2
     # n_epochs = 100
     n_workers = 8
-    test_loader = DataLoader(test_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
+    test_loader = DataLoader(test_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
     # valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
 
     # seed_torch(777)
@@ -331,8 +337,12 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     print('Using device:', device)
 
     n_classes = 183
-    model = EfficientNet.from_pretrained('efficientnet-b0', weights_path=best_trained_model, num_classes=n_classes)
-    model._fc = nn.Linear(model._fc.in_features, n_classes)
+    model = EfficientNet.from_name('efficientnet-b0', num_classes=n_classes)
+    checkpoint = torch.load(best_trained_model)
+    model.load_state_dict(checkpoint)
+
+    # model = EfficientNet.from_pretrained('efficientnet-b0', weights_path=best_trained_model, num_classes=n_classes)
+    # model._fc = nn.Linear(model._fc.in_features, n_classes)
 
     model.to(device)
 
