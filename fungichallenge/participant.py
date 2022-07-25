@@ -6,7 +6,7 @@ import mysql.connector
 import time
 import sklearn.metrics
 import datetime
-# from tqdm import tqdm
+from tqdm import tqdm
 
 
 def connect():
@@ -245,7 +245,8 @@ def request_labels(team, team_pw, image_ids):
         mycursor = mydb.cursor()
 
         imgs_and_labels = []
-        for im in image_ids:
+        for i in tqdm(range(len(image_ids))):
+            im = image_ids[i]
             dataset = 'train_set'
             sql = "SELECT taxonID from fungi_data where image_id = %s and dataset = %s"
             val = (im, dataset)
