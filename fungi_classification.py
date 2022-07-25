@@ -61,9 +61,7 @@ def request_random_labels(tm, tm_pw):
         im_id = imgs_and_data[idx][0]
         req_imgs.append(im_id)
 
-    # imgs = ['noimage', 'imge21']
     labels = fcp.request_labels(tm, tm_pw, req_imgs)
-    # print(labels)
 
 
 def test_submit_labels():
@@ -255,6 +253,8 @@ def train_fungi_network(nw_dir):
         avg_loss = 0.
         optimizer.zero_grad()
 
+        print("Training")
+
         for i, (images, labels) in tqdm.tqdm(enumerate(train_loader)):
             images = images.to(device)
             labels = labels.to(device)
@@ -332,15 +332,10 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
         lambda x: im_dir + x['image'] + '.jpg', axis=1)
 
     test_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
-    # batch_sz * accumulation_step = 64
+
     batch_sz = 32
-    # accumulation_steps = 2
-    # n_epochs = 100
     n_workers = 8
     test_loader = DataLoader(test_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
-    # valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
-
-    # seed_torch(777)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using device:', device)
@@ -350,48 +345,14 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     checkpoint = torch.load(best_trained_model)
     model.load_state_dict(checkpoint)
 
-    # model = EfficientNet.from_pretrained('efficientnet-b0', weights_path=best_trained_model, num_classes=n_classes)
-    # model._fc = nn.Linear(model._fc.in_features, n_classes)
-
     model.to(device)
 
-    # lr = 0.01
-    # optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
-    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
-    #
-    # criterion = nn.CrossEntropyLoss()
-    # best_score = 0.
-    # best_loss = np.inf
-    #
-    # for epoch in range(n_epochs):
-    #     start_time = time.time()
-    #     model.train()
-    #     avg_loss = 0.
-    #     optimizer.zero_grad()
-    #
-    #     for i, (images, labels) in tqdm.tqdm(enumerate(train_loader)):
-    #         images = images.to(device)
-    #         labels = labels.to(device)
-    #
-    #         y_preds = model(images)
-    #         loss = criterion(y_preds, labels)
-    #
-    #         # Scale the loss to the mean of the accumulated batch size
-    #         loss = loss / accumulation_steps
-    #         loss.backward()
-    #         if (i - 1) % accumulation_steps == 0:
-    #             optimizer.step()
-    #             optimizer.zero_grad()
-    #             avg_loss += loss.item() / len(train_loader)
-    #
     model.eval()
-    # avg_val_loss = 0.
     preds = np.zeros((len(test_dataset)))
     # preds_raw = []
 
     for i, (images, labels) in tqdm.tqdm(enumerate(test_loader)):
         images = images.to(device)
-        # labels = labels.to(device)
 
         with torch.no_grad():
             y_preds = model(images)
@@ -405,27 +366,10 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     for i, s in enumerate(imgs_and_data):
         pred_class = int(preds[i])
         taxon_id = int(data_stats['taxonID'][data_stats['class'] == pred_class])
-        # print("Image: ", s[0], ' class:', pred_class, 'taxonID', taxon_id)
         img_and_labels.append([s[0], taxon_id])
 
     print("Submitting labels")
     fcp.submit_labels(tm, tm_pw, img_and_labels)
-
-
-
-        # loss = criterion(y_preds, labels)
-        # avg_val_loss += loss.item() / len(valid_loader)
-    #
-    #     scheduler.step(avg_val_loss)
-    #
-    #     # TODO: Add independent validation set
-    #     score = f1_score(df['class'], preds, average='macro')
-    #     accuracy = accuracy_score(df['class'], preds)
-    #     recall_3 = top_k_accuracy_score(df['class'], preds_raw, k=3)
-    #
-    #     elapsed = time.time() - start_time
-    #     logger.debug(
-    #       f'  Epoch {epoch + 1} - avg_train_loss: {avg_loss:.4f}  avg_val_loss: {avg_val_loss:.4f} F1: {score:.6f}  Accuracy: {accuracy:.6f} Recall@3: {recall_3:.6f} time: {elapsed:.0f}s')
 
 
 def compute_challenge_score(tm, tm_pw, nw_dir):
@@ -448,9 +392,8 @@ if __name__ == '__main__':
     network_dir = "C:/data/Danish Fungi/FungiNetwork/"
 
     get_participant_credits(team, team_pw)
-    # request_random_labels(team, team_pw)
-    # get_all_data_with_labels(team, team_pw, image_dir, network_dir)
-    # train_fungi_network(network_dir)
-    # evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
+    request_random_labels(team, team_pw)
+    get_all_data_with_labels(team, team_pw, image_dir, network_dir)
+    train_fungi_network(network_dir)
+    evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
     compute_challenge_score(team, team_pw, network_dir)
-    # test_submit_labels()
