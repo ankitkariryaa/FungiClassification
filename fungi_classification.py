@@ -1,4 +1,5 @@
 import os.path
+import sys
 import pandas as pd
 import fungichallenge.participant as fcp
 import random
@@ -28,18 +29,19 @@ def get_participant_credits(tm, tm_pw):
     print('Team', team, 'credits:', current_credits)
 
 
-def test_get_data_set():
-    team = "DancingDeer"
-    team_pw = "fungi44"
-    imgs_and_data = fcp.get_data_set(team, team_pw, 'train_set')
+def print_data_set_numbers(tm, tm_pw):
+    """
+    Debug test function to get data
+    """
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
     print('train_set pairs', len(imgs_and_data))
-    imgs_and_data = fcp.get_data_set(team, team_pw, 'train_labels_set')
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_labels_set')
     print('train_labels_set set pairs', len(imgs_and_data))
-    imgs_and_data = fcp.get_data_set(team, team_pw, 'test_set')
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'test_set')
     print('test_set set pairs', len(imgs_and_data))
-    imgs_and_data = fcp.get_data_set(team, team_pw, 'final_set')
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'final_set')
     print('final_set set pairs', len(imgs_and_data))
-    imgs_and_data = fcp.get_data_set(team, team_pw, 'requested_set')
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'requested_set')
     print('requested_set set pairs', len(imgs_and_data))
 
 
@@ -64,16 +66,12 @@ def request_random_labels(tm, tm_pw):
     labels = fcp.request_labels(tm, tm_pw, req_imgs)
 
 
-def test_submit_labels():
-    # team = "DancingDeer"
-    # team_pw = "fungi44"
-    team = "BigAnt"
-    team_pw = "fungi66"
-
-    imgs_and_data = fcp.get_data_set(team, team_pw, 'test_set')
-    # n_img = len(imgs_and_data)
-
-    label_and_species = fcp.get_all_label_ids(team, team_pw)
+def test_submit_labels(tm, tm_pw):
+    """
+        Submitting random labels for testing
+    """
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'test_set')
+    label_and_species = fcp.get_all_label_ids(tm, team_pw)
     n_label = len(label_and_species)
 
     im_and_labels = []
@@ -84,7 +82,7 @@ def test_submit_labels():
             rand_label = label_and_species[rand_label_idx][0]
             im_and_labels.append([im_id, rand_label])
 
-    fcp.submit_labels(team, team_pw, im_and_labels)
+    fcp.submit_labels(tm, tm_pw, im_and_labels)
 
 
 def get_all_data_with_labels(tm, tm_pw, id_dir, nw_dir):
@@ -118,7 +116,7 @@ def get_all_data_with_labels(tm, tm_pw, id_dir, nw_dir):
         f.write('image,class\n')
         for t in total_img_data:
             class_id = taxon_id_to_label[t[1]]
-            out_str = os.path.join(id_dir, t[0]) + '.jpg, ' + str(class_id) + '\n'
+            out_str = os.path.join(id_dir, t[0]) + '.JPG, ' + str(class_id) + '\n'
             f.write(out_str)
 
     with open(stats_out, 'w') as f:
@@ -145,9 +143,15 @@ class NetworkFungiDataset(Dataset):
             label = int(self.df['class'].values[idx])
         try:
             image = cv2.imread(file_path)
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) # Fails on GPU Cluster - never stops
+        except cv2.error as e:
+            print("OpenCV error with", file_path, "error", e)
+        except IOError:
+            print("IOError with", file_path)
         except:
             print("Could not read or convert", file_path)
+            print(sys.exc_info())
+            return None, None
 
         if self.transform:
             augmented = self.transform(image=image)
@@ -224,7 +228,7 @@ def train_fungi_network(nw_dir):
     # batch_sz * accumulation_step = 64
     batch_sz = 32
     accumulation_steps = 2
-    n_epochs = 100
+    n_epochs = 20
     n_workers = 8
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
@@ -314,6 +318,10 @@ def train_fungi_network(nw_dir):
 
 
 def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
+    """
+        Evaluate trained network on the test set and submit the results to the challenge database.
+        The scores can be extracted using compute_challenge_score
+    """
     print("Evaluating on test set")
 
     best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
@@ -329,7 +337,7 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     imgs_and_data = fcp.get_data_set(team, team_pw, 'test_set')
     df = pd.DataFrame(imgs_and_data, columns=['image', 'class'])
     df['image'] = df.apply(
-        lambda x: im_dir + x['image'] + '.jpg', axis=1)
+        lambda x: im_dir + x['image'] + '.JPG', axis=1)
 
     test_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
 
@@ -360,7 +368,7 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
         preds[i * batch_sz: (i + 1) * batch_sz] = y_preds.argmax(1).to('cpu').numpy()
         # preds_raw.extend(y_preds.to('cpu').numpy())
 
-    # Transfrom classes into taxonIDs
+    # Transform classes into taxonIDs
     data_stats = pd.read_csv(data_stats_file)
     img_and_labels = []
     for i, s in enumerate(imgs_and_data):
@@ -373,6 +381,9 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
 
 
 def compute_challenge_score(tm, tm_pw, nw_dir):
+    """
+        Compute the scores on the test set using the result submitted to the challenge database.
+    """
     log_file = os.path.join(nw_dir, "FungiScores.log")
     logger = init_logger(log_file)
     results = fcp.compute_score(tm, tm_pw)
@@ -382,8 +393,10 @@ def compute_challenge_score(tm, tm_pw, nw_dir):
 
 if __name__ == '__main__':
     # Your team and team password
-    team = "DancingDeer"
-    team_pw = "fungi44"
+    # team = "DancingDeer"
+    # team_pw = "fungi44"
+    team = "BigAnt"
+    team_pw = "fungi66"
 
     # where is the full set of images placed
     image_dir = "C:/data/Danish Fungi/DF20M/"
@@ -392,8 +405,10 @@ if __name__ == '__main__':
     network_dir = "C:/data/Danish Fungi/FungiNetwork/"
 
     get_participant_credits(team, team_pw)
+    print_data_set_numbers(team, team_pw)
     request_random_labels(team, team_pw)
     get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     train_fungi_network(network_dir)
     evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
     compute_challenge_score(team, team_pw, network_dir)
+
