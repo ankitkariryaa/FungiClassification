@@ -406,13 +406,15 @@ def compute_score(team, team_pw):
             im_id_sub = sub[0]
             tax_id_sub = sub[1]
             time_sub = sub[2]
-            cur_gt = pred_gt_dict[im_id_sub]["gt"]
-            cur_time = pred_gt_dict[im_id_sub]["time"]
-            if time_sub > cur_time:
-                pred_gt_dict[im_id_sub]["pred"] = tax_id_sub
-                pred_gt_dict[im_id_sub]["time"] = time_sub
-            if time_sub > latest_time:
-                latest_time = time_sub
+            # We can have submissions from other sets
+            if im_id_sub in pred_gt_dict:
+                cur_gt = pred_gt_dict[im_id_sub]["gt"]
+                cur_time = pred_gt_dict[im_id_sub]["time"]
+                if time_sub > cur_time:
+                    pred_gt_dict[im_id_sub]["pred"] = tax_id_sub
+                    pred_gt_dict[im_id_sub]["time"] = time_sub
+                if time_sub > latest_time:
+                    latest_time = time_sub
 
         y_true = []
         y_pred = []
