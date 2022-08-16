@@ -265,12 +265,23 @@ def train_fungi_network(nw_dir):
     lr = 0.01
     optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
     scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
+    data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
+    data_stats = pd.read_csv(data_stats_file)
+    cls_num_list = data_stats['count']
+    beta = 0.9999
+    effective_num = 1.0 - np.power(beta, cls_num_list)
+    per_cls_weights = (1.0 - beta) / np.array(effective_num)
+    per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(cls_num_list)
+    per_cls_weights = torch.FloatTensor(per_cls_weights).to(device=device)
+    print(f"Class weights: {per_cls_weights}")
 
     criterion = nn.CrossEntropyLoss()
     best_score = 0.
     best_loss = np.inf
 
     for epoch in range(n_epochs):
+        if epoch/n_epochs > 0.8:
+            criterion = nn.CrossEntropyLoss(weight=per_cls_weights)
         start_time = time.time()
         model.train()
         avg_loss = 0.
