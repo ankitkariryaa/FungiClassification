@@ -10,6 +10,7 @@ from torch.optim import Adam, SGD, AdamW
 # from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
 import albumentations as A
+from albumentations.pytorch import ToTensorV2
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import f1_score, accuracy_score, top_k_accuracy_score
 from efficientnet_pytorch import EfficientNet
@@ -159,14 +160,15 @@ class NetworkFungiDataset(Dataset):
 
 
 def get_transforms(data):
+    
     width = 299
     height = 299
 
     if data == 'train':
         
         transform = A.Compose([
-            A.CenterCrop(p=0.5, width, height),
-            A.RandomResizedCrop(p=0.3, width, height, scale=(0.8, 1.0)),
+            #A.CenterCrop(p=0.5, width=width, height=height),
+            A.RandomResizedCrop(p=1, width=width, height=height, scale=(0.8, 1.0)),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.Transpose(p=0.5),
@@ -185,7 +187,7 @@ def get_transforms(data):
                         ],
                 p=0.1)]),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            A.pytorch.ToTensorV2(),
+            ToTensorV2(),
         ])
         
         return transform
@@ -194,7 +196,7 @@ def get_transforms(data):
         return A.Compose([
             A.Resize(width, height),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            A.pytorch.ToTensorV2(),
+            ToTensorV2(),
         ])
     else:
         print("Unknown data set requested")
