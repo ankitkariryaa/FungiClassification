@@ -62,7 +62,7 @@ def request_random_labels(tm, tm_pw):
         im_id = imgs_and_data[idx][0]
         req_imgs.append(im_id)
 
-    labels = fcp.request_labels(tm, tm_pw, req_imgs)
+    # labels = fcp.request_labels(tm, tm_pw, req_imgs)
 
 
 def test_submit_labels(tm, tm_pw):
@@ -247,7 +247,7 @@ def train_fungi_network(nw_dir):
     # batch_sz * accumulation_step = 64
     batch_sz = 32
     accumulation_steps = 2
-    n_epochs = 20
+    n_epochs = 50
     n_workers = 8
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
@@ -414,7 +414,69 @@ def compute_challenge_score(tm, tm_pw, nw_dir):
     # print(results)
     logger.info(results)
 
+def request_labels(tm, tm_pw):
+    """
+    An example on how to request labels from the available pool of images.
+    Here it is just a random subset being requested
+    """
+    n_request = 500
 
+    # First get the image ids from the pool
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    n_img = len(imgs_and_data)
+    print("Number of images in training pool (no labels)", n_img)
+
+    req_imgs = []
+    for i in range(n_request):
+        idx = random.randint(0, n_img - 1)
+        im_id = imgs_and_data[idx][0]
+        req_imgs.append(im_id)
+
+    # labels = fcp.request_labels(tm, tm_pw, req_imgs)
+
+def forward_pass_no_labels(tm, tm_pw, im_dir, nw_dir):
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    n_img = len(imgs_and_data)
+    df = pd.DataFrame(imgs_and_data, columns=['image', 'class'])
+    df['image'] = df.apply(
+        lambda x: im_dir + x['image'] + '.JPG', axis=1)
+    
+    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+    log_file = os.path.join(nw_dir, "FungiEvaluation.log")
+    data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
+
+    # Debug on model trained elsewhere
+    # best_trained_model = os.path.join("C:/data/Danish Fungi/training/", "DF20M-EfficientNet-B0_best_accuracy - Copy.pth")
+    # data_stats_file = os.path.join("C:/data/Danish Fungi/training/", "class-stats.csv")
+
+    unlabbel_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
+
+    batch_sz = 32
+    n_workers = 4
+    
+    unlabbel_loader = DataLoader(unlabbel_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using device:', device)
+
+    n_classes = 183
+    model = EfficientNet.from_name('efficientnet-b0', num_classes=n_classes)
+    checkpoint = torch.load(best_trained_model)
+    model.load_state_dict(checkpoint)
+
+    model.to(device)
+
+    model.eval()
+    preds = np.zeros((n_classes, len(imgs_and_data)))
+    
+    for i, (images, labels) in tqdm.tqdm(enumerate(unlabbel_loader)):
+        images = images.to(device)
+
+        with torch.no_grad():
+            y_preds = model(images)
+
+        preds[:,i] = y_preds
+    
 if __name__ == '__main__':
     # Your team and team password
     # team = "DancingDeer"
@@ -423,13 +485,17 @@ if __name__ == '__main__':
     team_pw = "fungi89"
 
     # where is the full set of images placed
-    image_dir = "./DF20M/"
+    image_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/data/DF20M/"
 
     # where should log files, temporary files and trained models be placed
-    network_dir = "./FungiNetwork/"
+    network_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/src/FungiNet/"
 
-    #get_participant_credits(team, team_pw)
-    #print_data_set_numbers(team, team_pw)
+    forward_pass_no_labels(team, team_pw, image_dir, network_dir)
+
+    get_participant_credits(team, team_pw)
+    print_data_set_numbers(team, team_pw)
+    # request_random_labels(team, team_pw)
+    request_labels(team, team_pw)
     get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     train_fungi_network(network_dir)
     #evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
