@@ -414,27 +414,14 @@ def compute_challenge_score(tm, tm_pw, nw_dir):
     # print(results)
     logger.info(results)
 
-def request_labels(tm, tm_pw):
-    """
-    An example on how to request labels from the available pool of images.
-    Here it is just a random subset being requested
-    """
-    n_request = 500
-
-    # First get the image ids from the pool
-    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
-    n_img = len(imgs_and_data)
-    print("Number of images in training pool (no labels)", n_img)
-
-    req_imgs = []
-    for i in range(n_request):
-        idx = random.randint(0, n_img - 1)
-        im_id = imgs_and_data[idx][0]
-        req_imgs.append(im_id)
-
-    # labels = fcp.request_labels(tm, tm_pw, req_imgs)
 
 def forward_pass_no_labels(tm, tm_pw, im_dir, nw_dir):
+    """
+    Function to do forward pass on unlabbelled training data
+    
+    Outputs softmax predictions for all images as rows with the coorespopnding image list
+s
+    """
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
     n_img = len(imgs_and_data)
     df = pd.DataFrame(imgs_and_data, columns=['image', 'class'])
@@ -467,7 +454,7 @@ def forward_pass_no_labels(tm, tm_pw, im_dir, nw_dir):
     model.to(device)
 
     model.eval()
-    preds = np.zeros((n_classes, len(imgs_and_data)))
+    preds = np.zeros((len(imgs_and_data), n_classes))
     
     for i, (images, labels) in tqdm.tqdm(enumerate(unlabbel_loader)):
         images = images.to(device)
@@ -475,8 +462,36 @@ def forward_pass_no_labels(tm, tm_pw, im_dir, nw_dir):
         with torch.no_grad():
             y_preds = model(images)
 
-        preds[:,i] = y_preds
+        preds[i*batch_sz : (i+1)*batch_sz,:] = y_preds.to('cpu').numpy()
+        
+    return preds
+        
+def request_labels(tm, tm_pw, im_dir, nw_dir):
+    """
+    An example on how to request labels from the available pool of images.
+    Here it is just a random subset being requested
+    """
+    n_request = 500
+
+    # First get the image ids from the pool
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
     
+    n_img = len(imgs_and_data)
+    print("Number of images in training pool (no labels)", n_img)
+    
+    softmax_scores = forward_pass_no_labels(tm, tm_pw, im_dir, nw_dir)
+
+    #TODO
+    # use softmax_scores for entropy sampling here
+
+    req_imgs = []
+    for i in range(n_request):
+        idx = random.randint(0, n_img - 1)
+        im_id = imgs_and_data[idx][0]
+        req_imgs.append(im_id)
+
+    # labels = fcp.request_labels(tm, tm_pw, req_imgs)
+
 if __name__ == '__main__':
     # Your team and team password
     # team = "DancingDeer"
@@ -490,12 +505,12 @@ if __name__ == '__main__':
     # where should log files, temporary files and trained models be placed
     network_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/src/FungiNet/"
 
-    forward_pass_no_labels(team, team_pw, image_dir, network_dir)
 
     get_participant_credits(team, team_pw)
     print_data_set_numbers(team, team_pw)
     # request_random_labels(team, team_pw)
-    request_labels(team, team_pw)
+    request_labels(team, team_pw, image_dir, network_dir)
+
     get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     train_fungi_network(network_dir)
     #evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
