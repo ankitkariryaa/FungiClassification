@@ -9,9 +9,7 @@ import cv2
 from torch.optim import Adam, SGD, AdamW
 # from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
-from albumentations import Compose, Normalize, Resize
-from albumentations import RandomCrop, HorizontalFlip, VerticalFlip, RandomBrightnessContrast, CenterCrop, PadIfNeeded, RandomResizedCrop
-from albumentations.pytorch import ToTensorV2
+import albumentations as A
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import f1_score, accuracy_score, top_k_accuracy_score
 from efficientnet_pytorch import EfficientNet
@@ -165,19 +163,38 @@ def get_transforms(data):
     height = 299
 
     if data == 'train':
-        return Compose([
-            RandomResizedCrop(width, height, scale=(0.8, 1.0)),
-            HorizontalFlip(p=0.5),
-            VerticalFlip(p=0.5),
-            RandomBrightnessContrast(p=0.2),
-            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ToTensorV2(),
+        
+        transform = A.Compose([
+            A.CenterCrop(p=0.5, width, height),
+            A.RandomResizedCrop(p=0.3, width, height, scale=(0.8, 1.0)),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.Transpose(p=0.5),
+            A.RandomRotate90(p=0.5),
+            A.Rotate(p=0.5, limit=180, border_mode=cv2.BORDER_CONSTANT, value=0),
+            A.RandomBrightnessContrast(p=0.25),
+            A.HueSaturationValue(p=0.25),
+            A.GaussNoise(var_limit=(0.5, 2), p=0.2),
+            A.OneOf([
+                #A.MotionBlur(blur_limit=3),
+                A.MedianBlur(blur_limit=3),
+                #A.Blur(blur_limit=3),
+                A.OneOf([
+                    A.Sharpen(),
+                    A.Emboss(),
+                        ],
+                p=0.1)]),
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            A.pytorch.ToTensorV2(),
         ])
+        
+        return transform
+    
     elif data == 'valid':
-        return Compose([
-            Resize(width, height),
-            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ToTensorV2(),
+        return A.Compose([
+            A.Resize(width, height),
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            A.pytorch.ToTensorV2(),
         ])
     else:
         print("Unknown data set requested")
@@ -400,20 +417,19 @@ if __name__ == '__main__':
     # Your team and team password
     # team = "DancingDeer"
     # team_pw = "fungi44"
-    team = "BigAnt"
-    team_pw = "fungi66"
+    team = "FunnyFly"
+    team_pw = "fungi89"
 
     # where is the full set of images placed
-    image_dir = "C:/data/Danish Fungi/DF20M/"
+    image_dir = "./DF20M/"
 
     # where should log files, temporary files and trained models be placed
-    network_dir = "C:/data/Danish Fungi/FungiNetwork/"
+    network_dir = "./FungiNetwork/"
 
-    get_participant_credits(team, team_pw)
-    print_data_set_numbers(team, team_pw)
-    # request_random_labels(team, team_pw)
+    #get_participant_credits(team, team_pw)
+    #print_data_set_numbers(team, team_pw)
     get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     train_fungi_network(network_dir)
-    evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
-    compute_challenge_score(team, team_pw, network_dir)
+    #evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
+    #compute_challenge_score(team, team_pw, network_dir)
 
