@@ -20,6 +20,20 @@ from logging import getLogger, DEBUG, FileHandler, Formatter, StreamHandler
 import time
 
 
+class EfficientNetWithFeatures(EfficientNet):
+    def forward(self, inputs):
+        """ Calls extract_features to extract features, applies final linear layer, and returns logits. """
+        bs = inputs.size(0)
+        # Convolution layers
+        ef = self.extract_features(inputs)
+
+        # Pooling and final linear layer
+        x = self._avg_pooling(ef)
+        x = x.view(bs, -1)
+        x = self._dropout(x)
+        r = self._fc(x)
+        return r, ef
+
 def get_participant_credits(tm, tm_pw):
     """
         Print available credits for the team
@@ -130,6 +144,7 @@ def get_all_data_with_labels(tm, tm_pw, id_dir, nw_dir):
 class NetworkFungiDataset(Dataset):
     def __init__(self, df, transform=None):
         self.df = df
+        self.df['labels'] = df['class'].map(lambda x: int(x))
         self.transform = transform
 
     def __len__(self):
@@ -229,6 +244,127 @@ def init_logger(log_file='train.log'):
 
     return logger
 
+def get_sample_batch(labels, dataset, postive=True):
+    px = []
+    for i in labels:
+        if postive:
+            l = dataset.df.query(f"labels == {i}")
+        else:
+            l = dataset.df.query(f"labels != {i}")
+        if len(l) == 0:
+            return None
+        else:
+            j = random.choice(l.index.tolist())
+            px.append(dataset[j][0]) # only the image
+    return torch.stack(px, dim=0)
+
+
+def pretrain_fungi_network(nw_dir):
+    data_file = os.path.join(nw_dir, "data_with_labels.csv")
+    log_file = os.path.join(nw_dir, "FungiEfficientNet-B0.log")
+    logger = init_logger(log_file)
+
+    df = pd.read_csv(data_file)
+    n_classes = len(df['class'].unique())
+    print("Number of classes in data", n_classes)
+    print("Number of samples with labels", df.shape[0])
+
+    train_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
+    # TODO: Divide data into training and validation
+    valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
+
+    # batch_sz * accumulation_step = 64
+    batch_sz = 32
+    accumulation_steps = 2
+    n_epochs = 50
+    n_workers = 8
+    train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+
+    seed_torch(777)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using device:', device)
+
+    model = EfficientNetWithFeatures.from_pretrained('efficientnet-b0')
+    model._fc = nn.Linear(model._fc.in_features, n_classes)
+    model.to(device)
+
+    lr = 0.01
+    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
+
+    margin_loss = nn.TripletMarginLoss()
+    best_score = 0.
+    best_loss = np.inf
+
+    for epoch in range(n_epochs):
+        start_time = time.time()
+        model.train()
+        avg_loss = 0.
+        optimizer.zero_grad()
+
+        print("Pre Training")
+
+        for i, (images, labels) in tqdm.tqdm(enumerate(train_loader)):
+            images = images.to(device)
+
+            positive_samples = get_sample_batch(labels, train_dataset, postive=True)
+            negative_samples = get_sample_batch(labels, train_dataset, postive=False)
+            if positive_samples is None or negative_samples is None:
+                continue
+            positive_samples = positive_samples.to(device)
+            negative_samples = negative_samples.to(device)
+
+            _, anchor_feature_preds = model(images)
+            _, positive_feature_preds = model(positive_samples)
+            _, negative_feature_preds = model(negative_samples)
+
+            loss = margin_loss(anchor_feature_preds, positive_feature_preds, negative_feature_preds)
+
+            # Scale the loss to the mean of the accumulated batch size
+            loss = loss / accumulation_steps
+            loss.backward()
+            if (i - 1) % accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                avg_loss += loss.item() / len(train_loader)
+
+        print("Doing validation for pre training")
+        model.eval()
+        avg_val_loss = 0.
+
+        for i, (images, labels) in tqdm.tqdm(enumerate(valid_loader)):
+            images = images.to(device)
+            labels = labels.to(device)
+            positive_samples = get_sample_batch(labels, train_dataset, postive=True)
+            negative_samples = get_sample_batch(labels, train_dataset, postive=False)
+            if positive_samples is None or negative_samples is None:
+                continue
+            positive_samples = positive_samples.to(device)
+            negative_samples = negative_samples.to(device)
+
+            with torch.no_grad():
+
+                _, anchor_feature_feature_preds = model(images)
+                _, positive_feature_preds = model(positive_samples)
+                _, negative_feature_preds = model(negative_samples)
+
+
+            loss = margin_loss(anchor_feature_preds, positive_feature_preds, negative_feature_preds)
+            avg_val_loss += loss.item() / len(valid_loader)
+
+
+        scheduler.step(avg_val_loss)
+
+        elapsed = time.time() - start_time
+
+        if avg_val_loss < best_loss:
+            best_loss = avg_val_loss
+            logger.debug(f'  Epoch {epoch + 1} - Save Best Loss: {best_loss:.4f} Model')
+            best_model_name = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_loss_pretrained.pth")
+            torch.save(model.state_dict(), best_model_name)
+
 
 def train_fungi_network(nw_dir):
     data_file = os.path.join(nw_dir, "data_with_labels.csv")
@@ -257,10 +393,16 @@ def train_fungi_network(nw_dir):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using device:', device)
 
-    model = EfficientNet.from_pretrained('efficientnet-b0')
-    model._fc = nn.Linear(model._fc.in_features, n_classes)
+    pretrained_model_path = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_loss_pretrained.pth")
 
-    model.to(device)
+    if os.path.exists(pretrained_model_path):
+        model = EfficientNet.from_pretrained('efficientnet-b0')
+        model.load_state_dict(torch.load(pretrained_model_path))
+        model.to(device)
+    else:
+        model = EfficientNet.from_pretrained('efficientnet-b0')
+        model._fc = nn.Linear(model._fc.in_features, n_classes)
+        model.to(device)
 
     lr = 0.01
     optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
@@ -521,8 +663,8 @@ if __name__ == '__main__':
     print_data_set_numbers(team, team_pw)
     # request_random_labels(team, team_pw)
     request_labels(team, team_pw, image_dir, network_dir)
+    pretrain_fungi_network(network_dir)
 
-    get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     train_fungi_network(network_dir)
     #evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
     #compute_challenge_score(team, team_pw, network_dir)
