@@ -275,7 +275,7 @@ def pretrain_fungi_network(nw_dir):
     valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'), assign_labels=True)
 
     # batch_sz * accumulation_step = 64
-    batch_sz = 18
+    batch_sz = 18*3
     accumulation_steps = 4
     n_epochs = 5
     n_workers = 8
@@ -289,7 +289,9 @@ def pretrain_fungi_network(nw_dir):
 
     model = EfficientNetWithFeatures.from_pretrained('efficientnet-b0')
     model._fc = nn.Linear(model._fc.in_features, n_classes)
-    model.to(device)
+    # model.to(device)
+
+    model = torch.nn.DataParallel(model,device_ids=[0,1,2])
 
     lr = 0.01
     optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
