@@ -214,6 +214,26 @@ def get_transforms(data):
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ToTensorV2(),
         ])
+    elif data == 'valid_hf':
+        return A.Compose([
+            A.HorizontalFlip(p=1),
+            A.Resize(width, height),
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ToTensorV2(),
+        ])
+    elif data == 'valid_vf':
+        return A.Compose([
+            A.VerticalFlip(p=1),
+            A.Resize(width, height),
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ToTensorV2(),
+        ])
+    elif data == 'valid':
+        return A.Compose([
+            A.Resize(width, height),
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ToTensorV2(),
+        ])
     else:
         print("Unknown data set requested")
         return None
@@ -518,10 +538,14 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
         lambda x: im_dir + x['image'] + '.JPG', axis=1)
 
     test_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
+    test_dataset_hf = NetworkFungiDataset(df, transform=get_transforms(data='valid_hf'))
+    test_dataset_vf = NetworkFungiDataset(df, transform=get_transforms(data='valid_hf'))
 
     batch_sz = 32
     n_workers = 8
     test_loader = DataLoader(test_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+    test_loader_hf = DataLoader(test_dataset_hf, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+    test_loader_vf = DataLoader(test_dataset_vf, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using device:', device)
@@ -534,7 +558,7 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     model.to(device)
 
     model.eval()
-    preds = np.zeros((len(test_dataset)))
+    preds_ori = np.zeros((len(test_dataset)))
     # preds_raw = []
 
     for i, (images, labels) in tqdm.tqdm(enumerate(test_loader)):
@@ -543,8 +567,35 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
         with torch.no_grad():
             y_preds = model(images)
 
-        preds[i * batch_sz: (i + 1) * batch_sz] = y_preds.argmax(1).to('cpu').numpy()
+        preds_ori[i * batch_sz: (i + 1) * batch_sz] = y_preds.softmax(1).to('cpu').numpy()
         # preds_raw.extend(y_preds.to('cpu').numpy())
+
+    ## Pred HorizontalFlip
+    preds_hf = np.zeros((len(test_dataset)))
+    # preds_raw = []
+
+    for i, (images, labels) in tqdm.tqdm(enumerate(test_loader_hf)):
+        images = images.to(device)
+
+        with torch.no_grad():
+            y_preds = model(images)
+
+        preds_hf[i * batch_sz: (i + 1) * batch_sz] = y_preds.softmax(1).to('cpu').numpy()
+        
+    ## Pred VerticalFlip
+    preds_vf = np.zeros((len(test_dataset)))
+
+    for i, (images, labels) in tqdm.tqdm(enumerate(test_loader_vf)):
+        images = images.to(device)
+
+        with torch.no_grad():
+            y_preds = model(images)
+
+        preds_vf[i * batch_sz: (i + 1) * batch_sz] = y_preds.softmax(1).to('cpu').numpy()
+    ##
+
+    preds = preds_ori + preds_hf + preds_vf
+    preds = np.argmax(preds, axis=1)
 
     # Transform classes into taxonIDs
     data_stats = pd.read_csv(data_stats_file)
