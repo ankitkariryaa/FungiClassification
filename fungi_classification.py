@@ -704,7 +704,7 @@ if __name__ == '__main__':
     get_participant_credits(team, team_pw)
     
     # request_specific_labels(team, team_pw)
-    
+    fcp.get_all_data_with_labels(team, team_pw)
     print_data_set_numbers(team, team_pw)
     
     # forward_pass_no_labels(team, team_pw, image_dir, network_dir)
