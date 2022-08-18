@@ -603,8 +603,8 @@ s
     model.load_state_dict(checkpoint)
 
     model.to(device)
-
     model.eval()
+    _avg_pool = nn.AdaptiveAvgPool2d(1)
     preds = np.zeros((len(imgs_and_data), n_classes))
     features = np.zeros((len(imgs_and_data), model._fc.in_features))
     
@@ -615,7 +615,7 @@ s
             y_preds, feats = model(images)
 
         preds[i*batch_sz : (i+1)*batch_sz,:] = y_preds.softmax(dim=1).to('cpu').numpy()
-        features[i*batch_sz : (i+1)*batch_sz,:] = feats.to('cpu').numpy()
+        features[i*batch_sz : (i+1)*batch_sz,:] =  _avg_pool(feats).squeeze().squeeze().to('cpu').numpy()
         
     np.savez(os.path.join(nw_dir,"features_and_softmax.npz"),softmax_scores=preds, features=features)
     # return preds
@@ -651,10 +651,19 @@ def request_specific_labels(tm, tm_pw):
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
     image_idx = [t[0] for t in imgs_and_data]
     softmax_scores = np.load(os.path.join(network_dir,"softmax_scores.npy"))
-    idxs_kmeans = kmeans_sample(softmax_scores, n_sample=200)
-    idxs_entropy = entropy_sample(softmax_scores, n_sample=200)
+    
+    # idxs_kmeans = kmeans_sample(softmax_scores, n_sample=200)
+    idxs_entropy = entropy_sample(softmax_scores, n_sample=1999)
+    
+    image_entropy = np.array(image_idx)[idxs_entropy].tolist()
+    
+    answer = input("Are you sure you want to spent credits[y/n]: ")
+    
+    if answer.lower() == "y":
+        fcp.request_labels(tm, tm_pw, image_entropy)
     
     return
+
     # labels = fcp.request_labels(tm, tm_pw, im_ids)
     # return labels
 
@@ -693,12 +702,16 @@ if __name__ == '__main__':
 
 
     get_participant_credits(team, team_pw)
-    print_data_set_numbers(team, team_pw)
     
     # request_specific_labels(team, team_pw)
+    
+    print_data_set_numbers(team, team_pw)
+    
+    # forward_pass_no_labels(team, team_pw, image_dir, network_dir)
+    
 
 
-    # request_labels(team, team_pw, image_dir, network_dir)
+
     pretrain_fungi_network(network_dir)
 
     train_fungi_network(network_dir)

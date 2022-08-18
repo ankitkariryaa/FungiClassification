@@ -52,7 +52,13 @@ most_confused_image_indices = np.argsort(softmax_confusion_scores)[np.where(np.s
 
 
 
+def entropy_sample(probs, n_sample):
+    log_probs = np.log(probs)
+    U = (probs*log_probs).sum(1)
+    idxs = np.argsort(U)[:n_sample]
+    return idxs
 
+entropy = entropy_sample(softmax_scores_unlabelled_images, 4000)
 
 
 
