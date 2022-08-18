@@ -275,9 +275,9 @@ def pretrain_fungi_network(nw_dir):
     valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'), assign_labels=True)
 
     # batch_sz * accumulation_step = 64
-    batch_sz = 12
-    accumulation_steps = 6
-    n_epochs = 50
+    batch_sz = 24
+    accumulation_steps = 3
+    n_epochs = 5
     n_workers = 8
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
