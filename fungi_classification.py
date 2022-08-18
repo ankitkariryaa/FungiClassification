@@ -275,9 +275,9 @@ def pretrain_fungi_network(nw_dir):
     valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'), assign_labels=True)
 
     # batch_sz * accumulation_step = 64
-    batch_sz = 12
+    batch_sz = 24
     accumulation_steps = 6
-    n_epochs = 50
+    n_epochs = 5
     n_workers = 8
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
@@ -697,21 +697,22 @@ if __name__ == '__main__':
     # where is the full set of images placed
     image_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/data/DF20M/"
     image_dir = "/scratch/s183983/fungi/DF20M"
+    image_dir= "../DF20M"
+
     # where should log files, temporary files and trained models be placed
     network_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/src/FungiNet/"
     network_dir = "/scratch/s183983/fungi/funginet"
-
+    network_dir = "./models"
     get_participant_credits(team, team_pw)
     
-    # request_specific_labels(team, team_pw)
+#    request_specific_labels(team, team_pw)
     
     print_data_set_numbers(team, team_pw)
     
     # forward_pass_no_labels(team, team_pw, image_dir, network_dir)
-    
+#    request_labels(team, team_pw, image_dir, network_dir)    
 
-
-
+    get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     pretrain_fungi_network(network_dir)
 
     train_fungi_network(network_dir)
