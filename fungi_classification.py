@@ -579,9 +579,23 @@ def forward_pass_no_labels(tm, tm_pw, im_dir, nw_dir):
 s
     """
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    
+    data_file = os.path.join(nw_dir, "data_with_labels.csv")
+    df2 = pd.read_csv(data_file)
+    
+    train_names = [os.path.basename(df2['image'][i]).split('.')[0] for i in range(len(df2))]
+    unlabel_names = [t[0] for t in imgs_and_data]
+    
+    bought_labels = np.isin(unlabel_names,train_names)
+    imgs_and_data = np.array(imgs_and_data)[~bought_labels].tolist()
+    
     df = pd.DataFrame(imgs_and_data, columns=['image', 'class'])
     df['image'] = df.apply(
         lambda x: im_dir + x['image'] + '.JPG', axis=1)
+    
+    
+
+    
     
     best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
 
@@ -617,10 +631,10 @@ s
             y_preds, feats = model(images)
 
         preds[i*batch_sz : (i+1)*batch_sz,:] = y_preds.softmax(dim=1).to('cpu').numpy()
-        features[i*batch_sz : (i+1)*batch_sz,:] =  _avg_pool(feats).squeeze().squeeze().to('cpu').numpy()
+        # features[i*batch_sz : (i+1)*batch_sz,:] =  _avg_pool(feats).squeeze().squeeze().to('cpu').numpy()
         
-    np.savez(os.path.join(nw_dir,"features_and_softmax.npz"),softmax_scores=preds, features=features)
-    # return preds
+    # np.savez(os.path.join(nw_dir,"features_and_softmax.npz"),softmax_scores=preds, features=features)
+    return preds
         
 def request_labels(tm, tm_pw, im_dir, nw_dir):
     """
@@ -648,14 +662,26 @@ def request_labels(tm, tm_pw, im_dir, nw_dir):
 
     # labels = fcp.request_labels(tm, tm_pw, req_imgs)
 
-def request_specific_labels(tm, tm_pw):
+def request_specific_labels(tm, tm_pw, nw_dir):
     # First get the image ids from the pool
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    
+    data_file = os.path.join(nw_dir, "data_with_labels.csv")
+    df2 = pd.read_csv(data_file)
+    
+    train_names = [os.path.basename(df2['image'][i]).split('.')[0] for i in range(len(df2))]
+    unlabel_names = [t[0] for t in imgs_and_data]
+    
+    bought_labels = np.isin(unlabel_names,train_names)
+    imgs_and_data = np.array(imgs_and_data)[~bought_labels].tolist()
+    
     image_idx = [t[0] for t in imgs_and_data]
     softmax_scores = np.load(os.path.join(network_dir,"softmax_scores.npy"))
     
     # idxs_kmeans = kmeans_sample(softmax_scores, n_sample=200)
-    idxs_entropy = entropy_sample(softmax_scores, n_sample=1999)
+    idxs_entropy = entropy_sample(softmax_scores, n_sample=2000)
     
     image_entropy = np.array(image_idx)[idxs_entropy].tolist()
     
@@ -698,25 +724,25 @@ if __name__ == '__main__':
 
     # where is the full set of images placed
     image_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/data/DF20M/"
-    image_dir = "/scratch/s183983/fungi/DF20M"
+    # image_dir = "/scratch/s183983/fungi/DF20M"
     # where should log files, temporary files and trained models be placed
     network_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/src/FungiNet/"
-    network_dir = "/scratch/s183983/fungi/funginet"
+    # network_dir = "/scratch/s183983/fungi/funginet"
 
     get_participant_credits(team, team_pw)
     
-    # request_specific_labels(team, team_pw)
+    # request_specific_labels(team, team_pw, network_dir)
     get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     print_data_set_numbers(team, team_pw)
     
-    # forward_pass_no_labels(team, team_pw, image_dir, network_dir)
+    forward_pass_no_labels(team, team_pw, image_dir, network_dir)
     
 
 
 
-    pretrain_fungi_network(network_dir)
+    # pretrain_fungi_network(network_dir)
 
-    train_fungi_network(network_dir)
-    evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
-    compute_challenge_score(team, team_pw, network_dir)
+    # train_fungi_network(network_dir)
+    # evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
+    # compute_challenge_score(team, team_pw, network_dir)
 
