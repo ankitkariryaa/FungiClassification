@@ -142,9 +142,10 @@ def get_all_data_with_labels(tm, tm_pw, id_dir, nw_dir):
 
 
 class NetworkFungiDataset(Dataset):
-    def __init__(self, df, transform=None):
+    def __init__(self, df, transform=None, assign_labels=False):
         self.df = df
-        self.df['labels'] = df['class'].map(lambda x: int(x))
+        if assign_labels:
+            self.df['labels'] = df['class'].map(lambda x: int(x) if type(x) is not None else 0)
         self.transform = transform
 
     def __len__(self):
@@ -269,13 +270,13 @@ def pretrain_fungi_network(nw_dir):
     print("Number of classes in data", n_classes)
     print("Number of samples with labels", df.shape[0])
 
-    train_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
+    train_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'), assign_labels=True)
     # TODO: Divide data into training and validation
-    valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
+    valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'), assign_labels=True)
 
     # batch_sz * accumulation_step = 64
-    batch_sz = 32
-    accumulation_steps = 2
+    batch_sz = 12
+    accumulation_steps = 6
     n_epochs = 50
     n_workers = 8
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
@@ -346,7 +347,7 @@ def pretrain_fungi_network(nw_dir):
 
             with torch.no_grad():
 
-                _, anchor_feature_feature_preds = model(images)
+                _, anchor_feature_preds = model(images)
                 _, positive_feature_preds = model(positive_samples)
                 _, negative_feature_preds = model(negative_samples)
 
@@ -382,7 +383,7 @@ def train_fungi_network(nw_dir):
 
     # batch_sz * accumulation_step = 64
     batch_sz = 32
-    accumulation_steps = 2
+    accumulation_steps = 6
     n_epochs = 50
     n_workers = 8
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
@@ -576,14 +577,11 @@ def forward_pass_no_labels(tm, tm_pw, im_dir, nw_dir):
 s
     """
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
-    n_img = len(imgs_and_data)
     df = pd.DataFrame(imgs_and_data, columns=['image', 'class'])
     df['image'] = df.apply(
         lambda x: im_dir + x['image'] + '.JPG', axis=1)
     
     best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
-    log_file = os.path.join(nw_dir, "FungiEvaluation.log")
-    data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
 
     # Debug on model trained elsewhere
     # best_trained_model = os.path.join("C:/data/Danish Fungi/training/", "DF20M-EfficientNet-B0_best_accuracy - Copy.pth")
@@ -600,7 +598,7 @@ s
     print('Using device:', device)
 
     n_classes = 183
-    model = EfficientNet.from_name('efficientnet-b0', num_classes=n_classes)
+    model = EfficientNetWithFeatures.from_pretrained('efficientnet-b0', num_classes=n_classes)
     checkpoint = torch.load(best_trained_model)
     model.load_state_dict(checkpoint)
 
@@ -608,16 +606,19 @@ s
 
     model.eval()
     preds = np.zeros((len(imgs_and_data), n_classes))
+    features = np.zeros((len(imgs_and_data), model._fc.in_features))
     
     for i, (images, labels) in tqdm.tqdm(enumerate(unlabbel_loader)):
         images = images.to(device)
 
         with torch.no_grad():
-            y_preds = model(images)
+            y_preds, feats = model(images)
 
-        preds[i*batch_sz : (i+1)*batch_sz,:] = y_preds.to('cpu').numpy()
+        preds[i*batch_sz : (i+1)*batch_sz,:] = y_preds.softmax(dim=1).to('cpu').numpy()
+        features[i*batch_sz : (i+1)*batch_sz,:] = feats.to('cpu').numpy()
         
-    return preds
+    np.savez(os.path.join(nw_dir,"features_and_softmax.npz"),softmax_scores=preds, features=features)
+    # return preds
         
 def request_labels(tm, tm_pw, im_dir, nw_dir):
     """
@@ -645,6 +646,38 @@ def request_labels(tm, tm_pw, im_dir, nw_dir):
 
     # labels = fcp.request_labels(tm, tm_pw, req_imgs)
 
+def request_specific_labels(tm, tm_pw):
+    # First get the image ids from the pool
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    image_idx = [t[0] for t in imgs_and_data]
+    softmax_scores = np.load(os.path.join(network_dir,"softmax_scores.npy"))
+    idxs_kmeans = kmeans_sample(softmax_scores, n_sample=200)
+    idxs_entropy = entropy_sample(softmax_scores, n_sample=200)
+    
+    return
+    # labels = fcp.request_labels(tm, tm_pw, im_ids)
+    # return labels
+
+def entropy_sample(probs, n_sample):
+    log_probs = np.log(probs)
+    U = (probs*log_probs).sum(1)
+    idxs = np.argsort(U)[:n_sample]
+    return idxs
+
+def kmeans_sample(embedding, n_sample):
+    from sklearn.cluster import KMeans
+    
+    cluster_learner = KMeans(n_clusters=n_sample)
+    cluster_learner.fit(embedding)
+  		
+    cluster_idxs = cluster_learner.predict(embedding)
+    centers = cluster_learner.cluster_centers_[cluster_idxs]
+    dis = (embedding - centers)**2
+    dis = dis.sum(axis=1)
+    q_idxs = np.array([np.arange(embedding.shape[0])[cluster_idxs==i][dis[cluster_idxs==i].argmin()] for i in range(n_sample)])
+    
+    return q_idxs
+
 if __name__ == '__main__':
     # Your team and team password
     # team = "DancingDeer"
@@ -661,11 +694,14 @@ if __name__ == '__main__':
 
     get_participant_credits(team, team_pw)
     print_data_set_numbers(team, team_pw)
-    # request_random_labels(team, team_pw)
-    request_labels(team, team_pw, image_dir, network_dir)
+    
+    # request_specific_labels(team, team_pw)
+
+
+    # request_labels(team, team_pw, image_dir, network_dir)
     pretrain_fungi_network(network_dir)
 
     train_fungi_network(network_dir)
-    #evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
-    #compute_challenge_score(team, team_pw, network_dir)
+    evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
+    compute_challenge_score(team, team_pw, network_dir)
 
