@@ -291,7 +291,7 @@ def pretrain_fungi_network(nw_dir):
     model._fc = nn.Linear(model._fc.in_features, n_classes)
     # model.to(device)
 
-    model = torch.nn.DataParallel(model,device_ids=['cuda:0','cuda:1','cuda:2'])
+    model = torch.nn.DataParallel(model,gpu_ids=[0,1,2])
 
     lr = 0.01
     optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
