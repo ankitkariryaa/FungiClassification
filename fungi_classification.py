@@ -696,10 +696,10 @@ if __name__ == '__main__':
 
     # where is the full set of images placed
     image_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/data/DF20M/"
-
+    image_dir = "/scratch/s183983/fungi/DF20M"
     # where should log files, temporary files and trained models be placed
     network_dir = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/summerschool/src/FungiNet/"
-
+    network_dir = "/scratch/s183983/fungi/funginet"
 
     get_participant_credits(team, team_pw)
     
